@@ -30,22 +30,22 @@ pub fn run(config: Config) -> MyResult<()> {
         match open(&filename) {
             Err(e) => eprintln!("{}: {}", filename, e),
             Ok(file) => {
-                let mut empty_row: usize = 0;
-                for (mut number, line) in file.lines().enumerate() {
+                let mut row_number: i32 = 1;
+                for line in file.lines() {
                     let line = line?;
                     if config.number_lines {
-                        println!("{:>6}\t{}", number + 1, line);
+                        println!("{:>6}\t{}", row_number, line);
                     } else if config.number_nonblank_lines {
-                        number -= empty_row;
                         if !line.is_empty() {
-                            println!("{:>6}\t{}", number + 1, line);
+                            println!("{:>6}\t{}", row_number, line);
                         } else {
-                            empty_row += 1;
                             println!("{}", line);
+                            continue;
                         }
                     } else {
                         println!("{}", line);
                     }
+                    row_number += 1;
                 }
             }
         }
