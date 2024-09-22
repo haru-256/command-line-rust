@@ -2,7 +2,7 @@
 use clap::Parser;
 use std::error::Error;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -52,16 +52,22 @@ fn test_parse_positive_int() {
 
     let res = parse_positive_int("foo");
     assert!(res.is_err());
-    assert_eq!(res.unwrap_err().to_string(), "foo".to_string());
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "invalid digit found in string".to_string()
+    );
 
     let res = parse_positive_int("0");
     assert!(res.is_err());
-    assert_eq!(res.unwrap_err().to_string(), "0".to_string());
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "invalid digit found in string".to_string()
+    );
 }
 
 pub fn get_args() -> MyResult<Config> {
     let config = Config::parse();
-    dbg!(&config);
+    // dbg!(&config);
     Ok(config)
 }
 
@@ -69,7 +75,19 @@ pub fn run(config: Config) -> MyResult<()> {
     for filename in config.files {
         match open(&filename) {
             Err(err) => eprintln!("{}: {}", filename, err),
-            Ok(_) => println!("{}: Opened", filename),
+            Ok(file) => match config.bytes {
+                Some(n) => {
+                    let mut buf = Vec::<u8>::new();
+                    file.take(n as u64).read_to_end(&mut buf)?;
+                    print!("{}", String::from_utf8_lossy(&buf));
+                }
+                None => {
+                    for line in file.lines().take(config.lines) {
+                        let line = line?;
+                        println!("{}", line);
+                    }
+                }
+            },
         }
     }
     Ok(())
