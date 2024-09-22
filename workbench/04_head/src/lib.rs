@@ -75,17 +75,21 @@ pub fn run(config: Config) -> MyResult<()> {
     for filename in config.files {
         match open(&filename) {
             Err(err) => eprintln!("{}: {}", filename, err),
-            Ok(file) => match config.bytes {
+            Ok(mut file) => match config.bytes {
                 Some(n) => {
                     let mut buf = Vec::<u8>::new();
                     file.take(n as u64).read_to_end(&mut buf)?;
                     print!("{}", String::from_utf8_lossy(&buf));
                 }
                 None => {
-                    for line in file.lines().take(config.lines) {
-                        let line = line?;
-                        println!("{}", line);
+                    let mut lines = String::new();
+                    for _ in 0..config.lines {
+                        let n_bytes = file.read_line(&mut lines)?;
+                        if n_bytes == 0 {
+                            break;
+                        }
                     }
+                    print!("{}", lines);
                 }
             },
         }
