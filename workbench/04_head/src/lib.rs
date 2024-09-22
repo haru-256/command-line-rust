@@ -1,6 +1,8 @@
 // use assert_cmd::assert;
 use clap::Parser;
 use std::error::Error;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -11,27 +13,34 @@ pub struct Config {
     files: Vec<String>,
     #[arg(
         short = 'n',
+        long = "lines",
         value_name = "LINES",
         help = "Number of lines to show",
         default_value = "10",
-        conflicts_with = "bytes"
+        conflicts_with = "bytes",
+        value_parser=parse_positive_int
     )]
     lines: usize,
-    #[arg(short = 'b', value_name = "BYTES", help = "Number of bytes to show", value_parser=parse_positive_int)]
+    #[arg(short = 'c', long="bytes", value_name = "BYTES", help = "Number of bytes to show", value_parser=parse_positive_int)]
     bytes: Option<usize>,
 }
 
 fn parse_positive_int(val: &str) -> Result<usize, String> {
-    let result = val.parse::<usize>();
-    match result {
-        Ok(num) => {
-            if num == 0 {
-                Err("Must be positive integer, Got: 0".into())
-            } else {
-                Ok(num)
-            }
-        }
-        Err(_) => Err(format!("Can't parse as positive integer: {}", val)),
+    // let result = val.parse::<usize>();
+    // match result {
+    //     Ok(num) => {
+    //         if num == 0 {
+    //             Err("Must be positive integer, Got: 0".into())
+    //         } else {
+    //             Ok(num)
+    //         }
+    //     }
+    //     Err(_) => Err(format!("Can't parse as positive integer: {}", val)),
+    // }
+
+    match val.parse::<usize>() {
+        Ok(n) if n > 0 => Ok(n),
+        _ => Err("invalid digit found in string".into()),
     }
 }
 
@@ -47,10 +56,7 @@ fn test_parse_positive_int() {
 
     let res = parse_positive_int("0");
     assert!(res.is_err());
-    assert_eq!(
-        res.unwrap_err().to_string(),
-        "must be positive, Got: 0".to_string()
-    );
+    assert_eq!(res.unwrap_err().to_string(), "0".to_string());
 }
 
 pub fn get_args() -> MyResult<Config> {
@@ -60,5 +66,21 @@ pub fn get_args() -> MyResult<Config> {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
+    for filename in config.files {
+        match open(&filename) {
+            Err(err) => eprintln!("{}: {}", filename, err),
+            Ok(_) => println!("{}: Opened", filename),
+        }
+    }
     Ok(())
+}
+
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(BufReader::new(std::io::stdin()))),
+        _ => {
+            let file = File::open(filename)?;
+            Ok(Box::new(BufReader::new(file)))
+        }
+    }
 }
