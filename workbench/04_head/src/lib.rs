@@ -74,32 +74,45 @@ pub fn get_args() -> MyResult<Config> {
 pub fn run(config: Config) -> MyResult<()> {
     let n_files = config.files.len();
     for (i, filename) in config.files.into_iter().enumerate() {
-        if n_files > 1 {
-            println!("==> {} <==", filename);
-        }
         match open(&filename) {
             Err(err) => eprintln!("{}: {}", filename, err),
-            Ok(mut file) => match config.bytes {
-                Some(n) => {
-                    let mut buf = Vec::<u8>::new();
-                    file.take(n as u64).read_to_end(&mut buf)?;
-                    print!("{}", String::from_utf8_lossy(&buf));
+            Ok(mut file) => {
+                if n_files > 1 {
+                    println!("==> {} <==", filename);
                 }
-                None => {
-                    let mut lines = String::new();
-                    for _ in 0..config.lines {
-                        let n_bytes = file.read_line(&mut lines)?;
-                        if n_bytes == 0 {
-                            break;
-                        }
+                match config.bytes {
+                    Some(n) => {
+                        // No1 solution, my solution
+                        // let mut buf = Vec::<u8>::new();
+                        // file.take(n as u64).read_to_end(&mut buf)?;
+                        // print!("{}", String::from_utf8_lossy(&buf));
+
+                        // No.2 solution, from the book
+                        // let mut handle = file.take(n as u64);
+                        // let mut buf = vec![0; n];
+                        // let bytes = handle.read(&mut buf)?;
+                        // print!("{}", String::from_utf8_lossy(&buf[..bytes]));
+
+                        // No.3 solution, from the book
+                        let bytes = file.bytes().take(n).collect::<Result<Vec<_>, _>>();
+                        print!("{}", String::from_utf8_lossy(&bytes?));
                     }
-                    print!("{}", lines);
+                    None => {
+                        let mut lines = String::new();
+                        for _ in 0..config.lines {
+                            let n_bytes = file.read_line(&mut lines)?;
+                            if n_bytes == 0 {
+                                break;
+                            }
+                        }
+                        print!("{}", lines);
+                    }
                 }
-            },
-        }
-        // newline between files and not after the last file
-        if n_files > 1 && i < n_files - 1 {
-            println!();
+                // newline between files and not after the last file
+                if n_files > 1 && i < n_files - 1 {
+                    println!();
+                }
+            }
         }
     }
     Ok(())
