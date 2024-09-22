@@ -72,7 +72,11 @@ pub fn get_args() -> MyResult<Config> {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
-    for filename in config.files {
+    let n_files = config.files.len();
+    for (i, filename) in config.files.into_iter().enumerate() {
+        if n_files > 1 {
+            println!("==> {} <==", filename);
+        }
         match open(&filename) {
             Err(err) => eprintln!("{}: {}", filename, err),
             Ok(mut file) => match config.bytes {
@@ -92,6 +96,10 @@ pub fn run(config: Config) -> MyResult<()> {
                     print!("{}", lines);
                 }
             },
+        }
+        // newline between files and not after the last file
+        if n_files > 1 && i < n_files - 1 {
+            println!();
         }
     }
     Ok(())
