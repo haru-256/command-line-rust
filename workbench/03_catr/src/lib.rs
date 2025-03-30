@@ -10,6 +10,7 @@ type MyResult<T> = Result<T, Box<dyn Error>>;
 pub struct Config {
     #[arg(value_name = "FILES", help = "Input files", default_values = ["-"])]
     files: Vec<String>,
+
     #[arg(
         short = 'n',
         long = "number",
@@ -17,6 +18,7 @@ pub struct Config {
         conflicts_with = "number_nonblank_lines"
     )]
     number_lines: bool,
+
     #[arg(
         short = 'b',
         long = "number-nonblank",
