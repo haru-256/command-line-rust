@@ -1,16 +1,20 @@
 [package]
 name = "catr"
 version = "0.1.0"
+authors = ["haru256"]
+description = "A simple echo command."
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.79"
-clap = { version = "4.5.0", features = ["derive"] }
+anyhow = "1.0.97"
+clap = { version = "4.5.34", features = ["derive"] }
+env_logger = "0.11.7"
+log = "0.4.26"
 
 [dev-dependencies]
 assert_cmd = "2.0.13"
-predicates = "3.0.4"
-pretty_assertions = "1.4.0"
-rand = "0.8.5"
+predicates = "3.1.3"
+pretty_assertions = "1.4.1"
+rand = "0.9.0"

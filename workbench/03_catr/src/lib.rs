@@ -1,4 +1,6 @@
 use clap::Parser;
+use env_logger;
+use log::debug;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
@@ -57,6 +59,7 @@ pub fn run(config: Config) -> MyResult<()> {
 
 pub fn get_args() -> MyResult<Config> {
     let config = Config::parse();
+    debug!("{:?}", config);
     Ok(config)
 }
 
