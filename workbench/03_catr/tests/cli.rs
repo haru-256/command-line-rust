@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_cmd::Command;
 use predicates::prelude::*;
 use pretty_assertions::assert_eq;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use std::fs;
 
 const PRG: &str = "catr";
@@ -26,7 +26,7 @@ fn usage() -> Result<()> {
 // --------------------------------------------------
 fn gen_bad_file() -> String {
     loop {
-        let filename: String = rand::thread_rng()
+        let filename: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(7)
             .map(char::from)
@@ -64,11 +64,7 @@ fn run(args: &[&str], expected_file: &str) -> Result<()> {
 }
 
 // --------------------------------------------------
-fn run_stdin(
-    input_file: &str,
-    args: &[&str],
-    expected_file: &str,
-) -> Result<()> {
+fn run_stdin(input_file: &str, args: &[&str], expected_file: &str) -> Result<()> {
     let input = fs::read_to_string(input_file)?;
     let expected = fs::read_to_string(expected_file)?;
     let output = Command::cargo_bin(PRG)?

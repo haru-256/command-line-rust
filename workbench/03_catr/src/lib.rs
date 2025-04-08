@@ -1,5 +1,4 @@
 use clap::Parser;
-use env_logger;
 use log::debug;
 use std::error::Error;
 use std::fs::File;
@@ -45,7 +44,6 @@ pub fn run(config: Config) -> MyResult<()> {
                             println!("{:>6}\t{}", no_blank_line_num, line);
                         } else {
                             println!("{}", line);
-                            continue;
                         }
                     } else {
                         println!("{}", line);
