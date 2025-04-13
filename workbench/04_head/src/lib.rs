@@ -41,8 +41,8 @@ fn parse_positive_int(val: &str) -> Result<usize, String> {
 
     match val.parse::<usize>() {
         Ok(n) if n > 0 => Ok(n), // match guard: https://doc.rust-jp.rs/rust-by-example-ja/flow_control/match/guard.html
-        Ok(0) => Err("Must be positive integer, Got: 0".into()),
-        _ => Err("invalid digit found in string".into()),
+        // Ok(0) => Err("Must be positive integer, Got: 0".into()), // 下でも同じことをしているので、コメントアウト
+        _ => Err(From::from("invalid digit found in string")),
     }
 }
 
