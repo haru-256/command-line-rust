@@ -61,6 +61,8 @@ pub fn get_args() -> MyResult<Config> {
     Ok(config)
 }
 
+/// Open a file or stdin.
+/// if the filename is "-", open stdin, otherwise open the file.
 fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     match filename {
         "-" => Ok(Box::new(BufReader::new(io::stdin()))),
