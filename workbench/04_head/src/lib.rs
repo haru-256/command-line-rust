@@ -1,5 +1,6 @@
 // use assert_cmd::assert;
 use clap::Parser;
+use log::debug;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
@@ -39,7 +40,8 @@ fn parse_positive_int(val: &str) -> Result<usize, String> {
     // }
 
     match val.parse::<usize>() {
-        Ok(n) if n > 0 => Ok(n),
+        Ok(n) if n > 0 => Ok(n), // match guard: https://doc.rust-jp.rs/rust-by-example-ja/flow_control/match/guard.html
+        Ok(0) => Err("Must be positive integer, Got: 0".into()),
         _ => Err("invalid digit found in string".into()),
     }
 }
@@ -68,6 +70,7 @@ fn test_parse_positive_int() {
 pub fn get_args() -> MyResult<Config> {
     let config = Config::parse();
     // dbg!(&config);
+    debug!("config: {:?}", config);
     Ok(config)
 }
 
@@ -118,6 +121,8 @@ pub fn run(config: Config) -> MyResult<()> {
     Ok(())
 }
 
+/// Open a file or stdin.
+/// if the filename is "-", open stdin, otherwise open the file.
 fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     match filename {
         "-" => Ok(Box::new(BufReader::new(std::io::stdin()))),
