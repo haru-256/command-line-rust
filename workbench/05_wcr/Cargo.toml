@@ -1,6 +1,8 @@
 [package]
 name = "wcr"
 version = "0.1.0"
+authors = ["yohei.kuro48@gmail.com"]
+description = "A simple CLI to mimic wc (word count) command"
 edition = "2024"
 
 [dependencies]
