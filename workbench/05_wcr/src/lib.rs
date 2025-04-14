@@ -84,23 +84,18 @@ fn report(
     num_chars: usize,
     filename: &str,
 ) {
-    if config.lines {
-        print!("{:>8}", num_lines);
-    }
-    if config.words {
-        print!("{:>8}", num_words);
-    }
-    if config.bytes {
-        print!("{:>8}", num_bytes);
-    }
-    if config.chars {
-        print!("{:>8}", num_chars);
-    }
-    if filename != STDIN_FILENAME {
-        println!(" {}", filename);
-    } else {
-        println!();
-    }
+    println!(
+        "{}{}{}{}{}",
+        format_field(num_lines, config.lines),
+        format_field(num_words, config.words),
+        format_field(num_bytes, config.bytes),
+        format_field(num_chars, config.chars),
+        if filename != STDIN_FILENAME {
+            format!(" {}", filename)
+        } else {
+            "".to_string()
+        }
+    );
 }
 
 pub fn get_args() -> MyResult<Config> {
@@ -155,6 +150,14 @@ pub fn count(mut file: impl BufRead) -> MyResult<FileInfo> {
     })
 }
 
+fn format_field(value: usize, show: bool) -> String {
+    if show {
+        format!("{:>8}", value)
+    } else {
+        "".to_string()
+    }
+}
+
 /// Open a file or stdin.
 /// if the filename is "-", open stdin, otherwise open the file.
 fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
@@ -169,7 +172,7 @@ fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileInfo, count};
+    use super::{FileInfo, count, format_field};
     use std::io::Cursor;
 
     #[test]
@@ -184,5 +187,13 @@ mod tests {
             num_chars: 48,
         };
         assert_eq!(info.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_field() {
+        assert_eq!(format_field(1, true), "       1");
+        assert_eq!(format_field(1, false), "");
+        assert_eq!(format_field(12345678, true), "12345678");
+        assert_eq!(format_field(12345678, false), "");
     }
 }
