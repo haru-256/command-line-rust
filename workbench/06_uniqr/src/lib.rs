@@ -3,7 +3,7 @@ use clap::Parser;
 use log::debug;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -21,19 +21,25 @@ pub struct Config {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
-    let in_file = open(config.in_file)?;
-    let out_file = open_to_write(config.out_file)?;
+    let in_file = open(&config.in_file)?;
+    let out_file = open_to_write(&config.out_file)?;
+    let should_newline = ends_with_newline(&config.in_file)?;
 
     let result = count(in_file)?;
+    debug!("result: {:#?}", result.len());
 
     let mut writer = BufWriter::new(out_file);
-    for element in result.iter() {
+    for (n, element) in result.iter().enumerate() {
         if config.count {
-            writeln!(writer, "{:>4} {}", element.value, element.key)?;
+            write!(writer, "{:>4} {}", element.value, element.key)?;
         } else {
-            writeln!(writer, "{}", element.key)?;
+            write!(writer, "{}", element.key)?;
+        }
+        if n < result.len() - 1 || should_newline {
+            writeln!(writer)?;
         }
     }
+    writer.flush()?;
 
     // match open(config.in_file.as_str()) {
     //     Ok(file) => {
@@ -85,6 +91,54 @@ fn count(file: Box<dyn BufRead>) -> MyResult<Vec<Element>> {
     Ok(rt)
 }
 
+fn ends_with_newline(path: &String) -> MyResult<bool> {
+    if path == STDIN_FILENAME {
+        return Ok(true);
+    }
+
+    let mut file = File::open(path)?;
+    let metadata = file.metadata()?;
+    let file_byte_size = metadata.len();
+
+    if file_byte_size == 0 {
+        return Ok(false);
+    }
+    file.seek(SeekFrom::End(-1))?;
+    let mut buffer = [0; 1];
+    file.read_exact(&mut buffer)?;
+
+    Ok(buffer[0] == b'\n')
+}
+
+fn count_v2(mut file: Box<dyn BufRead>) -> MyResult<Vec<Element>> {
+    let mut rt = Vec::<Element>::new();
+    let mut line = String::new();
+
+    loop {
+        let num_bytes = file.read_line(&mut line)?;
+        if num_bytes == 0 {
+            break;
+        }
+        if rt.is_empty() {
+            rt.push(Element {
+                key: line.clone(),
+                value: 0,
+            });
+        } else {
+            let e = rt.last_mut().unwrap();
+            if e.key == line {
+                e.value += 1;
+            } else {
+                rt.push(Element {
+                    key: line.clone(),
+                    value: 0,
+                });
+            }
+        }
+    }
+    Ok(rt)
+}
+
 pub fn get_args() -> MyResult<Config> {
     let config = Config::parse();
     debug!("Config: {:?}", config);
@@ -93,7 +147,7 @@ pub fn get_args() -> MyResult<Config> {
 
 /// Open a file or stdin.
 /// if the filename is "-", open stdin, otherwise open the file.
-fn open(filename: String) -> MyResult<Box<dyn BufRead>> {
+fn open(filename: &String) -> MyResult<Box<dyn BufRead>> {
     match filename.as_str() {
         STDIN_FILENAME => Ok(Box::new(BufReader::new(std::io::stdin()))),
         _ => {
@@ -103,19 +157,22 @@ fn open(filename: String) -> MyResult<Box<dyn BufRead>> {
     }
 }
 
-fn open_to_write(out_file: Option<String>) -> MyResult<Box<dyn Write>> {
+fn open_to_write(out_file: &Option<String>) -> MyResult<Box<dyn Write>> {
     match out_file {
         Some(filename) => {
-            // let file = File::create(out_file)?;
+            debug!("Open to write: {}", filename);
             let file = OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
                 .read(false)
                 .open(filename)?;
-            Ok(Box::new(file))
+            Ok(Box::new(BufWriter::new(file)))
         }
-        _ => Ok(Box::new(std::io::stdout())),
+        _ => {
+            let stdout = std::io::stdout();
+            Ok(Box::new(BufWriter::new(stdout.lock())))
+        }
     }
 }
 
@@ -127,6 +184,18 @@ mod tests {
     #[test]
     fn test_count() {
         let input = "hello\nhello\nworld\n";
+        let cursor = Cursor::new(input);
+        let result = count(Box::new(cursor)).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].key, "hello");
+        assert_eq!(result[0].value, 2);
+        assert_eq!(result[1].key, "world");
+        assert_eq!(result[1].value, 1);
+    }
+
+    #[test]
+    fn test_count_without_newline() {
+        let input = "hello\nhello\nworld";
         let cursor = Cursor::new(input);
         let result = count(Box::new(cursor)).unwrap();
         assert_eq!(result.len(), 2);
