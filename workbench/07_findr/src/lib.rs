@@ -77,6 +77,30 @@ pub fn run(config: Config) -> MyResult<()> {
     Ok(())
 }
 
+pub fn run_v2(config: Config) -> MyResult<()> {
+    let type_filter = |entry: &walkdir::DirEntry| check_entry_type_v2(entry, &config.types);
+    let name_filter = |entry: &walkdir::DirEntry| check_entry_name_v2(entry, &config.names);
+
+    for path in config.paths {
+        debug!("Path: {}", path);
+        let entries = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| match e {
+                Ok(entry) => Some(entry),
+                Err(e) => {
+                    eprintln!("{}", e);
+                    None
+                }
+            })
+            .filter(type_filter)
+            .filter(name_filter)
+            .map(|entry| entry.path().display().to_string())
+            .collect::<Vec<_>>();
+        println!("{}", entries.join("\n"));
+    }
+    Ok(())
+}
+
 /// Check if the entry matches the specified types
 pub fn check_entry_type(entry: &walkdir::DirEntry, types: &[EntryType]) -> bool {
     if types.is_empty() {
