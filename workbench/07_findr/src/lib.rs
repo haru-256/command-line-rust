@@ -65,8 +65,8 @@ pub fn run(config: Config) -> MyResult<()> {
                     eprintln!("{}", e);
                 }
                 Ok(entry) => {
-                    if check_entry_type(&entry, &config.types)
-                        && check_entry_name(&entry, &config.names)
+                    if check_entry_type_v2(&entry, &config.types)
+                        && check_entry_name_v2(&entry, &config.names)
                     {
                         println!("{}", entry.path().display());
                     }
@@ -95,6 +95,15 @@ pub fn check_entry_type(entry: &walkdir::DirEntry, types: &[EntryType]) -> bool 
     }
 }
 
+pub fn check_entry_type_v2(entry: &walkdir::DirEntry, types: &[EntryType]) -> bool {
+    types.is_empty()
+        || types.iter().any(|t| match t {
+            EntryType::Dir => entry.file_type().is_dir(),
+            EntryType::File => entry.file_type().is_file(),
+            EntryType::Link => entry.file_type().is_symlink(),
+        })
+}
+
 /// Check if the entry name matches the specified regex patterns
 pub fn check_entry_name(entry: &walkdir::DirEntry, names: &[Regex]) -> bool {
     if names.is_empty() {
@@ -107,6 +116,13 @@ pub fn check_entry_name(entry: &walkdir::DirEntry, names: &[Regex]) -> bool {
         }
     }
     false
+}
+
+pub fn check_entry_name_v2(entry: &walkdir::DirEntry, names: &[Regex]) -> bool {
+    names.is_empty()
+        || names
+            .iter()
+            .any(|name| name.is_match(&entry.file_name().to_string_lossy()))
 }
 
 #[cfg(test)]
