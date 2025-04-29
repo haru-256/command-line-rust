@@ -1,7 +1,8 @@
 use clap::{ArgGroup, Parser};
 use log::debug;
 use regex::Regex;
-use std::{error::Error, num::NonZeroUsize, ops::Range};
+use std::io::{self, BufRead, BufReader};
+use std::{error::Error, fs::File, num::NonZeroUsize, ops::Range};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 type PositionList = Vec<Range<usize>>;
@@ -179,15 +180,14 @@ pub fn get_args() -> MyResult<Config> {
         return Err("No extraction method specified".into());
     };
 
-    let delimiter = if args.delimiter.len() != 1 {
+    let delim_bytes = args.delimiter.as_bytes();
+    if delim_bytes.len() != 1 {
         return Err(format!("--delim \"{}\" must be a single byte", args.delimiter).into());
-    } else {
-        args.delimiter.as_bytes()[0]
-    };
+    }
 
     Ok(Config {
         files: args.files,
-        delimiter,
+        delimiter: *delim_bytes.first().unwrap(),
         extract,
     })
 }
@@ -195,12 +195,72 @@ pub fn get_args() -> MyResult<Config> {
 pub fn run(config: Config) -> MyResult<()> {
     // Implement the main logic of your program here
     debug!("Config: {:?}", config);
+
+    for filename in config.files {
+        match open(filename.as_str()) {
+            Err(err) => eprintln!("{}: {}", filename, err),
+            Ok(reader) => {
+                debug!("Reading from file: {}", filename);
+                match config.extract {
+                    Extract::Chars(ref char_pos) => {
+                        for line in reader.lines() {
+                            let line = line?;
+                            let extracted = extract_chars(&line, char_pos);
+                            println!("{}", extracted);
+                        }
+                    }
+                    _ => {
+                        unimplemented!()
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
+}
+
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        STDIN_FILENAME => Ok(Box::new(io::stdin().lock())),
+        _ => Ok(Box::new(BufReader::new(File::open(filename)?))),
+        // NOTE: closureではcompilerが推論してくれないため、明示的にcastする必要がある
+        // Rustでは、クロージャの返り値の型は「クロージャ内部だけで完結」して推論されます。
+        // クロージャの外で「これ Box<dyn BufRead> が欲しいんだよね」という期待があっても、
+        // 具体型→trait object 変換は推論に含まれない のが基本。
+        // _ => File::open(filename)
+        //     .map(|file| Box::new(BufReader::new(file)) as Box<dyn BufRead>)
+        //     .map_err(|e| e.into()),
+    }
+}
+
+// NOTE: range = 2-4,1-2 のときに 「1-2文字目 + 2-4文字目」ではなく、「2-4文字目 + 1-2文字目」を出力する必要があるのでこれはボツ
+fn my_extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
+    line.chars()
+        .enumerate()
+        .filter(|(i, _)| char_pos.iter().any(|range| range.contains(i)))
+        .map(|(_, c)| c)
+        .collect()
+}
+
+/// Extracts characters from a string based on the provided ranges.
+fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
+    let mut result = String::new();
+    for range in char_pos {
+        let start = range.start;
+        let end = range.end;
+        if start < line.len() && end <= line.len() {
+            line.chars().skip(start).take(end - start).for_each(|c| {
+                result.push(c);
+            });
+        }
+    }
+    result
 }
 
 #[cfg(test)]
 mod unit_tests {
-    use super::parse_pos;
+    use super::{extract_chars, parse_pos};
 
     #[test]
     fn test_parse_pos() {
@@ -312,5 +372,15 @@ mod unit_tests {
         let res = parse_pos("15,19-20");
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), vec![14..15, 18..20]);
+    }
+
+    #[test]
+    fn test_extract_chars() {
+        assert_eq!(extract_chars("", &[0..1]), "".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1]), "á".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1, 2..3]), "ác".to_string());
+        assert_eq!(extract_chars("ábc", &[0..3]), "ábc".to_string());
+        assert_eq!(extract_chars("ábc", &[2..3, 1..2]), "cb".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1, 1..2, 4..5]), "áb".to_string());
     }
 }
