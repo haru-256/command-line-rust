@@ -3,6 +3,7 @@ use csv::{ReaderBuilder, StringRecord};
 use log::debug;
 use regex::Regex;
 use std::io::{self, BufRead, BufReader};
+use std::vec;
 use std::{error::Error, fs::File, num::NonZeroUsize, ops::Range};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
@@ -206,14 +207,14 @@ pub fn run(config: Config) -> MyResult<()> {
                     Extract::Chars(ref char_pos) => {
                         for line in reader.lines() {
                             let line = line?;
-                            let extracted = extract_chars(&line, char_pos);
+                            let extracted = extract_chars_v2(&line, char_pos);
                             println!("{}", extracted);
                         }
                     }
                     Extract::Bytes(ref byte_pos) => {
                         for line in reader.lines() {
                             let line = line?;
-                            let extracted = extract_bytes(&line, byte_pos);
+                            let extracted = extract_bytes_v2(&line, byte_pos);
                             println!("{}", extracted);
                         }
                     }
@@ -222,13 +223,13 @@ pub fn run(config: Config) -> MyResult<()> {
                             .delimiter(config.delimiter)
                             .has_headers(false)
                             .from_reader(reader);
+                        let mut writer = csv::WriterBuilder::new()
+                            .delimiter(config.delimiter)
+                            .from_writer(io::stdout());
                         for result in reader.records() {
                             let record = result?;
-                            let extracted = extract_fields(&record, field_pos);
-                            println!(
-                                "{}",
-                                extracted.join((config.delimiter as char).to_string().as_str())
-                            );
+                            let extracted = extract_fields_v2(&record, field_pos);
+                            writer.write_record(extracted)?;
                         }
                     }
                 }
@@ -278,6 +279,22 @@ fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
     result
 }
 
+fn extract_chars_v2(line: &str, char_pos: &[Range<usize>]) -> String {
+    let chars = line.chars().collect::<Vec<_>>();
+    // より簡潔な方法
+    // char_pos
+    //     .iter()
+    //     .cloned()
+    //     .flat_map(|range| range.filter_map(|i| chars.get(i)))
+    //     .collect()
+
+    let mut selected: Vec<char> = vec![];
+    for range in char_pos.iter().cloned() {
+        selected.extend(range.filter_map(|i| chars.get(i)));
+    }
+    selected.into_iter().collect()
+}
+
 /// Extracts bytes from a byte slice based on the provided ranges.
 fn extract_bytes(line: &str, byte_pos: &[Range<usize>]) -> String {
     let mut result: String = String::new();
@@ -299,6 +316,16 @@ fn extract_bytes(line: &str, byte_pos: &[Range<usize>]) -> String {
     result
 }
 
+fn extract_bytes_v2(line: &str, byte_pos: &[Range<usize>]) -> String {
+    let bytes = line.as_bytes();
+    let selected = byte_pos
+        .iter()
+        .cloned()
+        .flat_map(|range| range.filter_map(|i| bytes.get(i).copied()))
+        .collect::<Vec<u8>>();
+    String::from_utf8_lossy(&selected).into_owned()
+}
+
 fn extract_fields(record: &StringRecord, field_pos: &[Range<usize>]) -> Vec<String> {
     let mut result: Vec<String> = Vec::new();
     for range in field_pos {
@@ -315,6 +342,14 @@ fn extract_fields(record: &StringRecord, field_pos: &[Range<usize>]) -> Vec<Stri
         }
     }
     result
+}
+
+fn extract_fields_v2(record: &StringRecord, field_pos: &[Range<usize>]) -> Vec<String> {
+    field_pos
+        .iter()
+        .cloned()
+        .flat_map(|range| range.filter_map(|i| record.get(i).map(String::from)))
+        .collect()
 }
 
 #[cfg(test)]
