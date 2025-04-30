@@ -209,6 +209,13 @@ pub fn run(config: Config) -> MyResult<()> {
                             println!("{}", extracted);
                         }
                     }
+                    Extract::Bytes(ref byte_pos) => {
+                        for line in reader.lines() {
+                            let line = line?;
+                            let extracted = extract_bytes(&line, byte_pos);
+                            println!("{}", extracted);
+                        }
+                    }
                     _ => {
                         unimplemented!()
                     }
@@ -246,13 +253,35 @@ fn my_extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
 /// Extracts characters from a string based on the provided ranges.
 fn extract_chars(line: &str, char_pos: &[Range<usize>]) -> String {
     let mut result = String::new();
+    let char_length = line.chars().count();
     for range in char_pos {
         let start = range.start;
         let end = range.end;
-        if start < line.len() && end <= line.len() {
+        if start < char_length {
             line.chars().skip(start).take(end - start).for_each(|c| {
                 result.push(c);
             });
+        }
+    }
+    result
+}
+
+/// Extracts bytes from a byte slice based on the provided ranges.
+fn extract_bytes(line: &str, byte_pos: &[Range<usize>]) -> String {
+    let mut result: String = String::new();
+    let bytes = line.as_bytes();
+    let byte_length = bytes.len();
+    for range in byte_pos {
+        let start = range.start;
+        let end = range.end;
+        if start < byte_length && end <= line.len() {
+            let byte_slice = bytes
+                .iter()
+                .skip(start)
+                .take(end - start)
+                .cloned()
+                .collect::<Vec<u8>>();
+            result.push_str(&String::from_utf8_lossy(&byte_slice));
         }
     }
     result
@@ -383,4 +412,14 @@ mod unit_tests {
         assert_eq!(extract_chars("ábc", &[2..3, 1..2]), "cb".to_string());
         assert_eq!(extract_chars("ábc", &[0..1, 1..2, 4..5]), "áb".to_string());
     }
+}
+
+#[test]
+fn test_extract_bytes() {
+    assert_eq!(extract_bytes("ábc", &[0..1]), "�".to_string());
+    assert_eq!(extract_bytes("ábc", &[0..2]), "á".to_string());
+    assert_eq!(extract_bytes("ábc", &[0..3]), "áb".to_string());
+    assert_eq!(extract_bytes("ábc", &[0..4]), "ábc".to_string());
+    assert_eq!(extract_bytes("ábc", &[3..4, 2..3]), "cb".to_string());
+    assert_eq!(extract_bytes("ábc", &[0..2, 5..6]), "á".to_string());
 }
