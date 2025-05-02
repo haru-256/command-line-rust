@@ -1,4 +1,4 @@
-use std::vec;
+use std::{f32::consts::E, vec};
 
 use clap::Parser;
 use log::debug;
@@ -61,7 +61,20 @@ pub fn get_args() -> MyResult<Config> {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
-    unimplemented!()
+    debug!("pattern: \"{:?}\"", config.pattern);
+
+    let entries = find_files(&config.files, config.recursive);
+    for entry in entries {
+        match entry {
+            Ok(filename) => {
+                debug!("Found file: {:?}", filename);
+            }
+            Err(err) => {
+                eprintln!("{}", err);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Find files in the given paths.
