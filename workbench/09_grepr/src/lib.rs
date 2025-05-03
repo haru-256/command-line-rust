@@ -1,4 +1,5 @@
-use std::{f32::consts::E, vec};
+use std::fs::File;
+use std::io::{BufRead, BufReader, stdin};
 
 use clap::Parser;
 use log::debug;
@@ -64,17 +65,45 @@ pub fn run(config: Config) -> MyResult<()> {
     debug!("pattern: \"{:?}\"", config.pattern);
 
     let entries = find_files(&config.files, config.recursive);
+    let num_files = entries.len();
     for entry in entries {
         match entry {
+            Err(err) => eprintln!("{}", err),
             Ok(filename) => {
                 debug!("Found file: {:?}", filename);
-            }
-            Err(err) => {
-                eprintln!("{}", err);
+                match open(filename.as_str()) {
+                    Err(err) => eprintln!("{}: {}", filename, err),
+                    Ok(file) => {
+                        let matches = find_lines(file, &config.pattern, config.invert_match);
+                        debug!("Matches: {:?}", matches);
+                        match matches {
+                            Err(err) => eprintln!("{}: {}", filename, err),
+                            Ok(lines) => {
+                                print_lines(&lines, num_files, config.count, &filename);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
     Ok(())
+}
+
+fn print_lines(lines: &[String], num_files: usize, count: bool, filename: &str) {
+    if count {
+        if num_files > 1 {
+            print!("{}:", filename);
+        }
+        println!("{}", lines.len());
+    } else if !lines.is_empty() {
+        for line in lines {
+            if num_files > 1 {
+                print!("{}:", filename);
+            }
+            print!("{}", line); // NOTE: line already contains a newline
+        }
+    }
 }
 
 /// Find files in the given paths.
@@ -88,8 +117,12 @@ fn find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
             continue;
         }
         let path = std::path::Path::new(path);
-        if recursive {
-            WalkDir::new(path)
+        if !recursive && path.is_dir() {
+            results.push(Err(
+                format!("{} is a directory", path.to_string_lossy()).into()
+            ));
+        } else {
+            WalkDir::new(path) // WalkDirは、pathがディレクトリであれば再帰的に探索し、ファイルであればそのパスを返す
                 .follow_links(true)
                 .into_iter()
                 .for_each(|entry| match entry {
@@ -102,25 +135,48 @@ fn find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
                         results.push(Err(format!("{}", e).into()));
                     }
                 });
-        } else if path.is_file() {
-            results.push(Ok(path.to_string_lossy().into_owned()));
-        } else if path.is_dir() {
-            results.push(Err(
-                format!("{} is a directory", path.to_string_lossy()).into()
-            ));
-        } else {
-            results.push(Err(
-                format!("{} is not a file", path.to_string_lossy()).into()
-            ));
         }
     }
     results
 }
 
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        STDIN_FILENAME => Ok(Box::new(BufReader::new(stdin()))),
+        _ => {
+            let file = File::open(filename)?;
+            Ok(Box::new(BufReader::new(file)))
+        }
+    }
+}
+
+fn find_lines<T: BufRead>(
+    mut file: T,
+    pattern: &Regex,
+    invert_match: bool,
+) -> MyResult<Vec<String>> {
+    let mut found_lines = vec![];
+    let buf = &mut String::new();
+    loop {
+        buf.clear();
+        let read_num_bytes = file.read_line(buf)?;
+        if read_num_bytes == 0 {
+            break;
+        }
+        if !invert_match && pattern.is_match(buf) || invert_match && !pattern.is_match(buf) {
+            found_lines.push(buf.clone());
+        }
+    }
+
+    Ok(found_lines)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::find_files;
+    use super::{find_files, find_lines};
     use rand::{Rng, distr::Alphanumeric};
+    use regex::{Regex, RegexBuilder};
+    use std::io::Cursor;
 
     #[test]
     fn test_find_files() {
@@ -164,5 +220,37 @@ mod tests {
         let files = find_files(&[bad], false);
         assert_eq!(files.len(), 1);
         assert!(files[0].is_err());
+    }
+
+    #[test]
+    fn test_find_lines() {
+        let text = b"Lorem\nIpsum\r\nDOLOR";
+
+        // 「or」というパターンは「Lorem」という1行にマッチするはず
+        let re1 = Regex::new("or").unwrap();
+        let matches = find_lines(Cursor::new(&text), &re1, false);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 1);
+
+        // マッチを反転させた場合、残りの2行にマッチするはず
+        let matches = find_lines(Cursor::new(&text), &re1, true);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 2);
+
+        // 大文字と小文字を区別しない正規表現
+        let re2 = RegexBuilder::new("or")
+            .case_insensitive(true)
+            .build()
+            .unwrap();
+
+        // 「Lorem」と「DOLOR」の2行にマッチするはず
+        let matches = find_lines(Cursor::new(&text), &re2, false);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 2);
+
+        // マッチを反転させた場合、残りの1行にマッチするはず
+        let matches = find_lines(Cursor::new(&text), &re2, true);
+        assert!(matches.is_ok());
+        assert_eq!(matches.unwrap().len(), 1);
     }
 }
