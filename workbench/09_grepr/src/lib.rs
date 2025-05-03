@@ -1,5 +1,6 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, stdin};
+use std::mem;
 
 use clap::Parser;
 use log::debug;
@@ -66,6 +67,46 @@ pub fn run(config: Config) -> MyResult<()> {
 
     let entries = find_files(&config.files, config.recursive);
     let num_files = entries.len();
+    let print_fn = |fname: &str, val: &str| {
+        // valに改行が含まれていることを仮定
+        if num_files > 1 {
+            print!("{}:{}", fname, val);
+        } else {
+            print!("{}", val);
+        }
+    };
+
+    for entry in entries {
+        match entry {
+            Err(err) => eprintln!("{}", err),
+            Ok(filename) => {
+                debug!("Found file: {:?}", filename);
+                match open(filename.as_str()) {
+                    Err(err) => eprintln!("{}: {}", filename, err),
+                    Ok(file) => match find_lines(file, &config.pattern, config.invert_match) {
+                        Err(err) => eprintln!("{}: {}", filename, err),
+                        Ok(lines) => {
+                            if config.count {
+                                print_fn(&filename, &format!("{}\n", lines.len()));
+                            } else if !lines.is_empty() {
+                                for line in &lines {
+                                    print_fn(&filename, line);
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn my_run(config: Config) -> MyResult<()> {
+    debug!("pattern: \"{:?}\"", config.pattern);
+
+    let entries = my_find_files(&config.files, config.recursive);
+    let num_files = entries.len();
     for entry in entries {
         match entry {
             Err(err) => eprintln!("{}", err),
@@ -74,7 +115,7 @@ pub fn run(config: Config) -> MyResult<()> {
                 match open(filename.as_str()) {
                     Err(err) => eprintln!("{}: {}", filename, err),
                     Ok(file) => {
-                        let matches = find_lines(file, &config.pattern, config.invert_match);
+                        let matches = my_find_lines(file, &config.pattern, config.invert_match);
                         debug!("Matches: {:?}", matches);
                         match matches {
                             Err(err) => eprintln!("{}: {}", filename, err),
@@ -108,7 +149,7 @@ fn print_lines(lines: &[String], num_files: usize, count: bool, filename: &str) 
 
 /// Find files in the given paths.
 /// If `recursive` is true, search in subdirectories as well.
-fn find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
+fn my_find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
     let mut results: Vec<MyResult<String>> = vec![];
     for path in paths {
         let path = path.as_str();
@@ -140,6 +181,38 @@ fn find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
     results
 }
 
+fn find_files(paths: &[String], recursive: bool) -> Vec<MyResult<String>> {
+    let mut results = vec![];
+
+    for path in paths {
+        match path.as_str() {
+            "-" => results.push(Ok(path.to_string())),
+            _ => match fs::metadata(path) {
+                Ok(metadata) => {
+                    if metadata.is_dir() {
+                        if recursive {
+                            WalkDir::new(path)
+                                .into_iter()
+                                .flatten() // Item=Resultに対してflattenを適用してOKのみを取得し、エラーを無視
+                                .filter(|e| e.file_type().is_file())
+                                .for_each(|entry| {
+                                    results.push(Ok(entry.path().display().to_string()));
+                                });
+                        } else {
+                            results.push(Err(From::from(format!("{} is a directory", path))));
+                        }
+                    } else if metadata.is_file() {
+                        results.push(Ok(path.to_string()));
+                    }
+                }
+                Err(e) => results.push(Err(From::from(format!("{}: {}", path, e)))),
+            },
+        }
+    }
+
+    results
+}
+
 fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     match filename {
         STDIN_FILENAME => Ok(Box::new(BufReader::new(stdin()))),
@@ -150,7 +223,7 @@ fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     }
 }
 
-fn find_lines<T: BufRead>(
+fn my_find_lines<T: BufRead>(
     mut file: T,
     pattern: &Regex,
     invert_match: bool,
@@ -169,6 +242,28 @@ fn find_lines<T: BufRead>(
     }
 
     Ok(found_lines)
+}
+
+fn find_lines<T: BufRead>(
+    mut file: T,
+    pattern: &Regex,
+    invert_match: bool,
+) -> MyResult<Vec<String>> {
+    let mut matches: Vec<String> = vec![];
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let read_num_bytes = file.read_line(&mut line)?;
+        if read_num_bytes == 0 {
+            break;
+        }
+        if pattern.is_match(&line) ^ invert_match {
+            // XOR演算子を使って、invert_matchの値に応じてマッチを反転
+            matches.push(mem::take(&mut line)); // lineをmatchesに移動し、lineを空にする
+        }
+    }
+
+    Ok(matches)
 }
 
 #[cfg(test)]
