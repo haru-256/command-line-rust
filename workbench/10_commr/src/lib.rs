@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader, stdin};
+
 use clap::Parser;
 use log::debug;
 
@@ -61,5 +64,25 @@ pub fn get_args() -> MyResult<Config> {
 
 pub fn run(config: Config) -> MyResult<()> {
     debug!("Running with config: {:?}", config);
+
+    let file1 = &config.file1;
+    let file2 = &config.file2;
+    if file1 == "-" && file2 == "-" {
+        return Err("Both input files cannot be STDIN (\"-\")".into());
+    }
+
+    let _file1 = open(file1)?;
+    let _file2 = open(file2)?;
+    debug!("Opened files: {} and {}", file1, file2);
+
     Ok(())
+}
+
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(stdin().lock())),
+        _ => Ok(Box::new(BufReader::new(
+            File::open(filename).map_err(|e| format!("{}: {}", filename, e))?,
+        ))),
+    }
 }
