@@ -6,7 +6,7 @@ use regex::Regex;
 use std::{error::Error, fs::File, str::FromStr};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Seek},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
 };
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
@@ -134,8 +134,8 @@ pub fn run(config: Config) -> MyResult<()> {
             Ok(file) => {
                 let (total_lines, total_bytes) = count_lines_bytes(filename)?;
                 debug!("{}: {} lines, {} bytes", filename, total_lines, total_bytes);
-                if config.bytes.is_some() {
-                    unimplemented!();
+                if config.bytes.as_ref().is_some() {
+                    print_bytes(file, config.bytes.as_ref().unwrap(), total_bytes)?
                 } else {
                     print_lines(file, &config.lines, total_lines)?
                 }
@@ -172,24 +172,26 @@ fn count_lines_bytes(filename: &str) -> MyResult<(i64, i64)> {
 fn print_lines<T: BufRead>(mut file: T, num_lines: &TakeValue, total_lines: i64) -> MyResult<()> {
     let start_index = get_start_index(num_lines, total_lines);
     debug!("start_index: {:?}", start_index);
-    if let Some(start) = start_index {
-        let buf = &mut String::new();
-        let mut index = 0u64;
-        loop {
-            buf.clear();
-            let num_bytes = file.read_line(buf)?;
-            if num_bytes == 0 {
-                break;
+
+    match start_index {
+        Some(start) => {
+            let buf = &mut String::new();
+            let mut index = 0u64;
+            loop {
+                buf.clear();
+                let num_bytes = file.read_line(buf)?;
+                if num_bytes == 0 {
+                    break;
+                }
+                if index >= start {
+                    print!("{}", buf); // bufに改行が含まれているのでそのまま出力
+                }
+                index += 1;
             }
-            if index >= start {
-                print!("{}", buf); // bufに改行が含まれているのでそのまま出力
-            }
-            index += 1;
+            Ok(())
         }
-    } else {
-        eprintln!("Invalid start index");
+        None => Ok(()), // 何も表示しない
     }
-    Ok(())
 }
 
 /// 与えられたファイルのbyteを表示する関数
@@ -197,7 +199,28 @@ fn print_bytes<T>(mut file: T, num_bytes: &TakeValue, total_bytes: i64) -> MyRes
 where
     T: Read + Seek,
 {
-    unimplemented!();
+    let start_index = get_start_index(num_bytes, total_bytes);
+    match start_index {
+        Some(start) => {
+            let num_bytes = match num_bytes {
+                PlusZero => total_bytes,
+                _ => total_bytes - (start as i64),
+            };
+            debug!("start_index: {:?}, num_bytes: {:?}", start_index, num_bytes);
+            file.seek(SeekFrom::Start(start))?;
+            let mut buf: Vec<u8> = vec![0; num_bytes as usize];
+            match file.read_exact(&mut buf) {
+                Err(e) => Err(format!("{}: {}", "read_exact", e).into()),
+                Ok(_) => {
+                    // bufに改行が含まれているのでそのまま出力
+                    let output = String::from_utf8_lossy(&buf).into_owned();
+                    print!("{}", output);
+                    Ok(())
+                }
+            }
+        }
+        None => Ok(()), // 何も表示しない
+    }
 }
 
 /// 与えられたファイルの出力開始位置を計算する関数
