@@ -1,6 +1,7 @@
 use crate::TakeValue::*;
 use clap::Parser;
 use log::debug;
+use once_cell::sync::OnceCell;
 use regex::Regex;
 use std::{error::Error, str::FromStr};
 
@@ -12,54 +13,57 @@ enum TakeValue {
     TakeNum(i64),
 }
 
+static NUM_RE: OnceCell<Regex> = OnceCell::new();
+
 // 自分の実装
-impl FromStr for TakeValue {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "+0" {
-            Ok(PlusZero)
-        } else {
-            // 先頭の+の場合はそのまま正の値として解釈する
-            // 負の値: xの場合は xと解釈する
-            // 正の値: xの場合は -xと解釈する
-            s.parse::<i64>()
-                .map_err(|_| format!("illegal count -- {}", s))
-                .map(|x| {
-                    if s.starts_with('+') || x < 0 {
-                        TakeNum(x)
-                    } else {
-                        TakeNum(-x)
-                    }
-                })
-        }
-    }
-}
-
 // impl FromStr for TakeValue {
 //     type Err = String;
 
 //     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         let num_re = Regex::new(r"^([+-])?(\d+)$").unwrap();
-
-//         match num_re.captures(s) {
-//             Some(caps) => {
-//                 let sign = caps.get(1).map_or("-", |m| m.as_str());
-//                 let num = format!("{}{}", sign, caps.get(2).unwrap().as_str());
-//                 if let Ok(val) = num.parse::<i64>() {
-//                     if sign == "+" && val == 0 {
-//                         Ok(PlusZero)
+//         if s == "+0" {
+//             Ok(PlusZero)
+//         } else {
+//             // 先頭の+の場合はそのまま正の値として解釈する
+//             // 負の値: xの場合は xと解釈する
+//             // 正の値: xの場合は -xと解釈する
+//             s.parse::<i64>()
+//                 .map_err(|_| format!("illegal count -- {}", s))
+//                 .map(|x| {
+//                     if s.starts_with('+') || x < 0 {
+//                         TakeNum(x)
 //                     } else {
-//                         Ok(TakeNum(val))
+//                         TakeNum(-x)
 //                     }
-//                 } else {
-//                     Err(format!("illegal count -- {}", s))
-//                 }
-//             }
-//             _ => Err(format!("illegal count -- {}", s)),
+//                 })
 //         }
 //     }
 // }
+
+impl FromStr for TakeValue {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let num_re =
+            NUM_RE.get_or_init(|| Regex::new(r"^([+-]?)(\d+)$").expect("Failed to compile regex"));
+
+        match num_re.captures(s) {
+            Some(caps) => {
+                let sign = caps.get(1).map_or("-", |m| m.as_str());
+                let num = format!("{}{}", sign, caps.get(2).unwrap().as_str());
+                if let Ok(val) = num.parse::<i64>() {
+                    if sign == "+" && val == 0 {
+                        Ok(PlusZero)
+                    } else {
+                        Ok(TakeNum(val))
+                    }
+                } else {
+                    Err(format!("illegal count -- {}", s))
+                }
+            }
+            _ => Err(format!("illegal count -- {}", s)),
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
