@@ -120,7 +120,7 @@ pub fn get_args() -> MyResult<Config> {
     Ok(config)
 }
 
-pub fn run(config: Config) -> MyResult<()> {
+pub fn my_run(config: Config) -> MyResult<()> {
     debug!("config: {:?}", config);
     let num_files = config.files.len();
     let has_header = num_files > 1 && !config.quiet;
@@ -135,13 +135,41 @@ pub fn run(config: Config) -> MyResult<()> {
                 let (total_lines, total_bytes) = count_lines_bytes(filename)?;
                 debug!("{}: {} lines, {} bytes", filename, total_lines, total_bytes);
                 if config.bytes.as_ref().is_some() {
-                    print_bytes(file, config.bytes.as_ref().unwrap(), total_bytes)?
+                    my_print_bytes(file, config.bytes.as_ref().unwrap(), total_bytes)?
                 } else {
-                    print_lines(file, &config.lines, total_lines)?
+                    my_print_lines(file, &config.lines, total_lines)?
                 }
                 // ヘッダがあり、最後のファイルでない場合
                 if has_header && n < num_files - 1 {
                     println!();
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn run(config: Config) -> MyResult<()> {
+    let num_files = config.files.len();
+    for (file_num, filename) in config.files.iter().enumerate() {
+        match File::open(filename) {
+            Err(e) => eprintln!("{}: {}", filename, e),
+            Ok(file) => {
+                if !config.quiet && num_files > 1 {
+                    println!(
+                        "{}==> {} <==",
+                        if file_num > 0 { "\n" } else { "" },
+                        filename
+                    );
+                }
+                let (total_lines, total_bytes) = my_count_lines_bytes(filename)?;
+                let file = BufReader::new(file);
+                // Option<T>に対してパターンマッチで&Tを取得するには、`&`ではなくas_refでもOK
+                if let Some(num_bytes) = &config.bytes {
+                    print_bytes(file, num_bytes, total_bytes)?;
+                } else {
+                    print_lines(file, &config.lines, total_lines)?;
                 }
             }
         }
@@ -158,7 +186,7 @@ fn open(filename: &str) -> MyResult<BufReader<File>> {
 }
 
 /// ファイルの行数とバイト数をカウントする関数
-fn count_lines_bytes(filename: &str) -> MyResult<(i64, i64)> {
+fn my_count_lines_bytes(filename: &str) -> MyResult<(i64, i64)> {
     let metadata = fs::metadata(filename)?;
     let total_bytes = metadata.len() as i64;
 
@@ -168,9 +196,31 @@ fn count_lines_bytes(filename: &str) -> MyResult<(i64, i64)> {
     Ok((total_lines, total_bytes))
 }
 
+fn count_lines_bytes(filename: &str) -> MyResult<(i64, i64)> {
+    let mut file = open(filename)?;
+    let mut num_lines = 0;
+    let mut num_bytes = 0;
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        let num_bytes_read = file.read_until(b'\n', &mut buf)?; // 改行をカウントするだけなので、\r\nから\nかは気にしない
+        if num_bytes_read == 0 {
+            break;
+        }
+        num_lines += 1;
+        num_bytes += num_bytes_read as i64;
+    }
+
+    Ok((num_lines, num_bytes))
+}
+
 /// 与えられたファイルの行を表示する関数
-fn print_lines<T: BufRead>(mut file: T, num_lines: &TakeValue, total_lines: i64) -> MyResult<()> {
-    let start_index = get_start_index(num_lines, total_lines);
+fn my_print_lines<T: BufRead>(
+    mut file: T,
+    num_lines: &TakeValue,
+    total_lines: i64,
+) -> MyResult<()> {
+    let start_index = my_get_start_index(num_lines, total_lines);
     debug!("start_index: {:?}", start_index);
 
     match start_index {
@@ -194,22 +244,41 @@ fn print_lines<T: BufRead>(mut file: T, num_lines: &TakeValue, total_lines: i64)
     }
 }
 
+fn print_lines<T>(mut file: T, num_lines: &TakeValue, total_lines: i64) -> MyResult<()>
+where
+    T: BufRead,
+{
+    if let Some(start) = get_start_index(num_lines, total_lines) {
+        let mut line_num = 0;
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            let bytes_read = file.read_until(b'\n', &mut buf)?;
+            if bytes_read == 0 {
+                break;
+            }
+            if line_num >= start {
+                print!("{}", String::from_utf8_lossy(&buf)); // bufに改行が含まれているのでそのまま出力
+            }
+            line_num += 1;
+        }
+    }
+
+    Ok(())
+}
+
 /// 与えられたファイルのbyteを表示する関数
-fn print_bytes<T>(mut file: T, num_bytes: &TakeValue, total_bytes: i64) -> MyResult<()>
+fn my_print_bytes<T>(mut file: T, num_bytes: &TakeValue, total_bytes: i64) -> MyResult<()>
 where
     T: Read + Seek,
 {
-    let start_index = get_start_index(num_bytes, total_bytes);
+    let start_index = my_get_start_index(num_bytes, total_bytes);
     match start_index {
         Some(start) => {
-            let num_bytes = match num_bytes {
-                PlusZero => total_bytes,
-                _ => total_bytes - (start as i64),
-            };
-            debug!("start_index: {:?}, num_bytes: {:?}", start_index, num_bytes);
             file.seek(SeekFrom::Start(start))?;
-            let mut buf: Vec<u8> = vec![0; num_bytes as usize];
-            match file.read_exact(&mut buf) {
+            let mut buf: Vec<u8> = Vec::new();
+            file.read_to_end(&mut buf)?;
+            match file.read_to_end(&mut buf) {
                 Err(e) => Err(format!("{}: {}", "read_exact", e).into()),
                 Ok(_) => {
                     // bufに改行が含まれているのでそのまま出力
@@ -223,9 +292,24 @@ where
     }
 }
 
+fn print_bytes<T>(mut file: T, num_bytes: &TakeValue, total_bytes: i64) -> MyResult<()>
+where
+    T: Read + Seek,
+{
+    if let Some(start) = get_start_index(num_bytes, total_bytes) {
+        file.seek(SeekFrom::Start(start))?;
+        let mut buf: Vec<u8> = Vec::new();
+        file.read_to_end(&mut buf)?;
+        if !buf.is_empty() {
+            print!("{}", String::from_utf8_lossy(&buf));
+        }
+    }
+    Ok(())
+}
+
 /// 与えられたファイルの出力開始位置を計算する関数
 /// もしtake_valがtotalを超えている場合など、無効な開始位置の場合はNoneを返す
-fn get_start_index(take_val: &TakeValue, total: i64) -> Option<u64> {
+fn my_get_start_index(take_val: &TakeValue, total: i64) -> Option<u64> {
     match take_val {
         TakeNum(num) => {
             if *num < 0 {
@@ -246,6 +330,26 @@ fn get_start_index(take_val: &TakeValue, total: i64) -> Option<u64> {
                 Some(0)
             } else {
                 None
+            }
+        }
+    }
+}
+
+fn get_start_index(take_val: &TakeValue, total: i64) -> Option<u64> {
+    match take_val {
+        PlusZero => {
+            if total > 0 {
+                Some(0)
+            } else {
+                None
+            }
+        }
+        TakeNum(num) => {
+            if num == &0 || total == 0 || num > &total {
+                None
+            } else {
+                let start = if num < &0 { total + num } else { num - 1 };
+                Some(if start < 0 { 0 } else { start as u64 })
             }
         }
     }
