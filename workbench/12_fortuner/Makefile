@@ -2,7 +2,7 @@
 
 .PHONY: test
 test: ## Execute tests
-	cargo test
+	RUST_LOG=info cargo test
 
 .PHONY: lint
 lint: ## Run Linter

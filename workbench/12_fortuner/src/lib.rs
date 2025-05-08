@@ -1,9 +1,7 @@
 use clap::Parser;
-use clap::builder::Str;
-use rand;
 use rand::rngs::StdRng;
 use rand::seq::IndexedRandom;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -18,11 +16,7 @@ type MyResult<T> = Result<T, Box<dyn Error>>;
 #[derive(Debug, Parser)]
 #[command(about, version, author, long_about=None)]
 struct Args {
-    #[arg(
-        value_name = "FILE",
-        help = "Prints help information",
-        required = false
-    )]
+    #[arg(value_name = "FILE", help = "Prints help information", required = true)]
     sources: Vec<String>,
 
     #[arg(
@@ -86,6 +80,32 @@ pub fn run(config: Config) -> MyResult<()> {
     debug!("Files: {:#?}", files);
     let fortunes = read_fortunes(&files)?;
     debug!("Fortunes: {:#?}", fortunes.last());
+    if fortunes.is_empty() {
+        println!("No fortunes found");
+        return Ok(());
+    }
+    if let Some(pattern) = &config.pattern {
+        debug!("Pattern: {:#?}", pattern);
+        let fortunes: Vec<Fortune> = fortunes
+            .into_iter()
+            .filter(|fortune| pattern.is_match(&fortune.text))
+            .collect();
+        if fortunes.is_empty() {
+            return Ok(());
+        }
+        let mut pre_fortune_source = fortunes.first().unwrap().source.clone();
+        eprintln!("({})\n%", pre_fortune_source);
+        for fortune in fortunes {
+            if fortune.source != pre_fortune_source {
+                eprintln!("({})\n%", fortune.source);
+                pre_fortune_source = fortune.source.clone();
+            }
+            println!("{}\n%", fortune.text);
+        }
+    } else {
+        let fortune = pick_fortune(&fortunes, config.seed)?;
+        println!("{}", fortune);
+    }
 
     Ok(())
 }
