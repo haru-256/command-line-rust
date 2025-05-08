@@ -3,7 +3,8 @@ use rand::rngs::StdRng;
 use rand::seq::IndexedRandom;
 use rand::{RngCore, SeedableRng};
 use std::error::Error;
-use std::fs::File;
+use std::ffi::OsStr;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use walkdir::WalkDir;
@@ -74,9 +75,35 @@ pub fn get_args() -> MyResult<Config> {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
+    let files = find_files(&config.sources)?;
+    let fortunes = read_fortunes(&files)?;
+    if let Some(pattern) = config.pattern {
+        let mut prev_source = None;
+        for fortune in fortunes
+            .iter()
+            .filter(|fortune| pattern.is_match(&fortune.text))
+        {
+            if prev_source.as_ref().is_none_or(|s| s != &fortune.source) {
+                eprintln!("({})\n%", fortune.source);
+                prev_source = Some(fortune.source.clone());
+            }
+            println!("{}\n%", fortune.text);
+        }
+    } else {
+        println!(
+            "{}",
+            pick_fortune(&fortunes, config.seed)
+                .or_else(|| Some("No fortunes found".to_string()))
+                .unwrap()
+        );
+    }
+    Ok(())
+}
+
+pub fn my_run(config: Config) -> MyResult<()> {
     debug!("Config: {:#?}", config);
 
-    let files = find_files(&config.sources)?;
+    let files = my_find_files(&config.sources)?;
     debug!("Files: {:#?}", files);
     let fortunes = read_fortunes(&files)?;
     debug!("Fortunes: {:#?}", fortunes.last());
@@ -103,15 +130,18 @@ pub fn run(config: Config) -> MyResult<()> {
             println!("{}\n%", fortune.text);
         }
     } else {
-        let fortune = pick_fortune(&fortunes, config.seed)?;
-        println!("{}", fortune);
+        let fortune = pick_fortune(&fortunes, config.seed);
+        match fortune {
+            Some(fortune) => println!("{}", fortune),
+            None => println!("No fortunes found"),
+        }
     }
 
     Ok(())
 }
 
 /// Finds files in the given paths.
-fn find_files(paths: &[String]) -> MyResult<Vec<PathBuf>> {
+fn my_find_files(paths: &[String]) -> MyResult<Vec<PathBuf>> {
     let mut files = Vec::new();
     for path in paths {
         debug!("Path: {:?}", path);
@@ -142,6 +172,29 @@ fn find_files(paths: &[String]) -> MyResult<Vec<PathBuf>> {
     Ok(files)
 }
 
+fn find_files(paths: &[String]) -> MyResult<Vec<PathBuf>> {
+    let dat = OsStr::new("dat");
+    let mut files: Vec<PathBuf> = vec![];
+
+    for path in paths {
+        // Check if the path exists
+        match fs::metadata(path) {
+            Err(e) => return Err(format!("{}: {}", path, e).into()),
+            Ok(_) => files.extend(
+                WalkDir::new(path)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .filter(|e| e.file_type().is_file() && e.path().extension() != Some(dat))
+                    .map(|e| e.path().into()),
+            ),
+        }
+    }
+
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
 /// Reads fortunes from the given paths.
 fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
     let mut fortunes = Vec::new();
@@ -150,6 +203,7 @@ fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut lines = Vec::<String>::new();
+        let basename = path.file_name().unwrap().to_string_lossy().into_owned();
 
         for line in reader.lines() {
             let line = line?;
@@ -157,7 +211,7 @@ fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
             if line == "%" && !lines.is_empty() {
                 // Delimiter found, process the buffer
                 fortunes.push(Fortune {
-                    source: path.file_name().unwrap().to_string_lossy().into_owned(),
+                    source: basename.clone(),
                     text: lines.join("\n"),
                 });
                 lines.clear();
@@ -171,17 +225,14 @@ fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
 }
 
 /// Picks a fortune from the given fortunes.
-fn pick_fortune(fortunes: &[Fortune], seed: Option<u64>) -> MyResult<String> {
+fn pick_fortune(fortunes: &[Fortune], seed: Option<u64>) -> Option<String> {
     let mut rng: Box<dyn RngCore> = match seed {
         Some(seed) => Box::new(StdRng::seed_from_u64(seed)),
         None => Box::new(rand::rng()),
     };
-    let fortune = fortunes.choose(&mut rng);
-
-    match fortune {
-        Some(fortune) => Ok(fortune.text.clone()),
-        None => Err("No fortunes found".into()),
-    }
+    fortunes
+        .choose(&mut rng)
+        .map(|fortune| fortune.text.clone())
 }
 
 #[cfg(test)]
