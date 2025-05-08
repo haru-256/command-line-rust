@@ -1,5 +1,9 @@
 use clap::Parser;
 use clap::builder::Str;
+use rand;
+use rand::rngs::StdRng;
+use rand::seq::IndexedRandom;
+use rand::{Rng, RngCore, SeedableRng};
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -118,6 +122,7 @@ fn find_files(paths: &[String]) -> MyResult<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Reads fortunes from the given paths.
 fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
     let mut fortunes = Vec::new();
     for path in paths {
@@ -145,9 +150,23 @@ fn read_fortunes(paths: &[PathBuf]) -> MyResult<Vec<Fortune>> {
     Ok(fortunes)
 }
 
+/// Picks a fortune from the given fortunes.
+fn pick_fortune(fortunes: &[Fortune], seed: Option<u64>) -> MyResult<String> {
+    let mut rng: Box<dyn RngCore> = match seed {
+        Some(seed) => Box::new(StdRng::seed_from_u64(seed)),
+        None => Box::new(rand::rng()),
+    };
+    let fortune = fortunes.choose(&mut rng);
+
+    match fortune {
+        Some(fortune) => Ok(fortune.text.clone()),
+        None => Err("No fortunes found".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{find_files, read_fortunes};
+    use super::{Fortune, find_files, pick_fortune, read_fortunes};
     use std::path::PathBuf;
 
     #[test]
@@ -225,5 +244,32 @@ mod tests {
         ]);
         assert!(res.is_ok());
         assert_eq!(res.unwrap().len(), 11);
+    }
+
+    #[test]
+    fn test_pick_fortune() {
+        // Fortuneのスライスを作成
+        let fortunes = &[
+            Fortune {
+                source: "fortunes".to_string(),
+                text: "You cannot achieve the impossible without \
+                      attempting the absurd."
+                    .to_string(),
+            },
+            Fortune {
+                source: "fortunes".to_string(),
+                text: "Assumption is the mother of all screw-ups.".to_string(),
+            },
+            Fortune {
+                source: "fortunes".to_string(),
+                text: "Neckties strangle clear thinking.".to_string(),
+            },
+        ];
+
+        // シードを与えて引用句を1つ選択
+        assert_eq!(
+            pick_fortune(fortunes, Some(1)).unwrap(),
+            "Neckties strangle clear thinking.".to_string()
+        );
     }
 }
