@@ -3,6 +3,7 @@ use std::{str::FromStr, vec};
 use ansi_term::Style;
 use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, Local, NaiveDate};
+use itertools::izip;
 use log::debug;
 
 use clap::Parser;
@@ -22,6 +23,7 @@ const MONTH_NAMES: [&str; 12] = [
     "December",
 ];
 const DAYS_OF_WEEK: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const LINE_WIDTH: usize = 22;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -141,6 +143,36 @@ pub fn run(config: Config) -> Result<()> {
     match config.month {
         Some(m) => {
             let lines = format_month(config.year, m, true, config.today);
+            println!("{}", lines.join("\n"));
+        }
+        None => {
+            println!("{:32}", config.year); // 年を中央揃えで表示
+            let months: Vec<_> = (1..=12)
+                .map(|month| format_month(config.year, month, false, config.today))
+                .collect();
+            for (i, chunk) in months.chunks(3).enumerate() {
+                // NOTE: コンパイラはchunkの数を3と認識できないので、if letを使う必要がある
+                if let [m1, m2, m3] = chunk {
+                    for lines in izip!(m1, m2, m3) {
+                        println!("{}{}{}", lines.0, lines.1, lines.2);
+                    }
+                    if i < 3 {
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn my_run(config: Config) -> Result<()> {
+    // Simulate some processing
+    debug!("config: {:#?}", config);
+
+    match config.month {
+        Some(m) => {
+            let lines = my_format_month(config.year, m, true, config.today);
             for line in lines {
                 println!("{}", line);
             }
@@ -151,7 +183,7 @@ pub fn run(config: Config) -> Result<()> {
             let mut col2: Vec<Vec<String>> = Vec::new();
             let mut col3: Vec<Vec<String>> = Vec::new();
             for month in 1..=12 {
-                let formatted_month = format_month(config.year, month, false, config.today);
+                let formatted_month = my_format_month(config.year, month, false, config.today);
                 match month % 3 {
                     1 => col1.push(formatted_month),
                     2 => col2.push(formatted_month),
@@ -174,9 +206,57 @@ pub fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
+fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Vec<String> {
+    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let last = last_day_in_month(year, month);
+    // 日曜日から初日までの空白で初期化
+    let mut days: Vec<String> = (1..=first.weekday().num_days_from_sunday())
+        .map(|_| "  ".to_string())
+        .collect();
+
+    let is_today = |day: u32| year == today.year() && month == today.month() && day == today.day();
+    // 1日から最終日までの日付を追加
+    days.extend((first.day()..=last.day()).map(|day| {
+        let fmt = format!("{:>2}", day);
+        if is_today(day) {
+            Style::new().reverse().paint(fmt).to_string()
+        } else {
+            format!("{:>2}", day)
+        }
+    }));
+    // 年月のヘッダーを作成
+    let month_name = MONTH_NAMES[(month - 1) as usize];
+    let mut lines = Vec::with_capacity(8);
+    lines.push(format!(
+        "{:^20}  ",
+        if print_year {
+            format!("{} {}", month_name, year)
+        } else {
+            month_name.to_string()
+        }
+    ));
+    // 曜日を表示
+    lines.push(format!("{}  ", DAYS_OF_WEEK.join(" ")));
+    // 1行ずつ出力
+    for week in days.chunks(7) {
+        lines.push(format!(
+            "{:<width$}  ",
+            week.join(" "),
+            width = LINE_WIDTH - 2 // 末尾に2つのスペースがあるのでその分を引く
+        ));
+    }
+
+    while lines.len() < 8 {
+        // 週が1つもない場合は空行を追加
+        lines.push(" ".repeat(LINE_WIDTH));
+    }
+
+    lines
+}
+
 /// Formats a month and year into a calendar string.
 /// The `print_year` parameter determines whether to print the year in the header.
-fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Vec<String> {
+fn my_format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Vec<String> {
     let mut ret: Vec<String> = vec![];
 
     let month_name = MONTH_NAMES[(month - 1) as usize];
@@ -243,12 +323,15 @@ fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Ve
 /// Formats a month and year into a calendar string.
 fn last_day_in_month(year: i32, month: u32) -> NaiveDate {
     // 翌月の1日を取得してから1日引く。うるう年の判定はchronoが自動で行う。
-    if month == 12 {
-        NaiveDate::from_ymd_opt(year, month, 31).unwrap()
+    let (y, m) = if month == 12 {
+        (year + 1, 1)
     } else {
-        let next_month_first_day = NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap();
-        next_month_first_day.pred_opt().unwrap()
-    }
+        (year, month + 1)
+    };
+    NaiveDate::from_ymd_opt(y, m, 1)
+        .unwrap()
+        .pred_opt()
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -366,7 +449,7 @@ mod tests {
             "     April 2021       ",
             "Su Mo Tu We Th Fr Sa  ",
             "             1  2  3  ",
-            " 4  5  6 \u{1b}[7m7\u{1b}[0m  8  9 10  ",
+            " 4  5  6 \u{1b}[7m 7\u{1b}[0m  8  9 10  ",
             "11 12 13 14 15 16 17  ",
             "18 19 20 21 22 23 24  ",
             "25 26 27 28 29 30     ",
