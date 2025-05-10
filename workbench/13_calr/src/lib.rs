@@ -1,6 +1,6 @@
 use std::{str::FromStr, vec};
 
-use ansi_term::{Color, Style};
+use ansi_term::Style;
 use anyhow::{Context, Result, anyhow};
 use chrono::{Datelike, Local, NaiveDate};
 use log::debug;
@@ -137,9 +137,39 @@ pub fn get_args() -> Result<Config> {
 pub fn run(config: Config) -> Result<()> {
     // Simulate some processing
     debug!("config: {:#?}", config);
-    let lines = format_month(config.year, config.month.unwrap_or(1), true, config.today);
-    for line in lines {
-        println!("{}", line);
+
+    match config.month {
+        Some(m) => {
+            let lines = format_month(config.year, m, true, config.today);
+            for line in lines {
+                println!("{}", line);
+            }
+        }
+        None => {
+            // Show the whole year
+            let mut col1: Vec<Vec<String>> = Vec::new();
+            let mut col2: Vec<Vec<String>> = Vec::new();
+            let mut col3: Vec<Vec<String>> = Vec::new();
+            for month in 1..=12 {
+                let formatted_month = format_month(config.year, month, false, config.today);
+                match month % 3 {
+                    1 => col1.push(formatted_month),
+                    2 => col2.push(formatted_month),
+                    _ => col3.push(formatted_month),
+                }
+            }
+
+            // カレンダーを表示
+            println!("{:32}", config.year); // 年を中央揃えで表示
+            for (i, ((c1, c2), c3)) in col1.iter().zip(col2.iter()).zip(col3.iter()).enumerate() {
+                for ((line1, line2), line3) in c1.iter().zip(c2.iter()).zip(c3.iter()) {
+                    println!("{}{}{}", line1, line2, line3);
+                }
+                if i < col1.len() - 1 {
+                    println!();
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -213,8 +243,12 @@ fn format_month(year: i32, month: u32, print_year: bool, today: NaiveDate) -> Ve
 /// Formats a month and year into a calendar string.
 fn last_day_in_month(year: i32, month: u32) -> NaiveDate {
     // 翌月の1日を取得してから1日引く。うるう年の判定はchronoが自動で行う。
-    let next_month_first_day = NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap();
-    next_month_first_day.pred_opt().unwrap()
+    if month == 12 {
+        NaiveDate::from_ymd_opt(year, month, 31).unwrap()
+    } else {
+        let next_month_first_day = NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap();
+        next_month_first_day.pred_opt().unwrap()
+    }
 }
 
 #[cfg(test)]
