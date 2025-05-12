@@ -13,6 +13,10 @@ lint: ## Run Linter
 fmt: ## Run formatter
 	cargo fmt
 
+.PHONY: doc
+doc: ## Generate documentation
+	cargo doc --no-deps --open --document-private-items
+
 .PHONY: help
 help: ## Show options
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
