@@ -1,9 +1,12 @@
 use std::{os::unix::fs::MetadataExt, path::PathBuf};
 
+mod owner;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, Utc};
 use clap::Parser;
 use log::debug;
+use owner::Owner;
 use tabular::{Row, Table};
 use users::{get_group_by_gid, get_user_by_uid};
 
@@ -66,7 +69,6 @@ fn find_files(paths: &[String], show_hidden: bool) -> Result<Vec<PathBuf>> {
     let mut rt: Vec<PathBuf> = Vec::new();
 
     for path in paths {
-        let path_buf = PathBuf::from(path);
         match std::fs::metadata(path) {
             Err(e) => eprintln!("{}: {}", path, e),
             Ok(metadata) => {
@@ -77,17 +79,16 @@ fn find_files(paths: &[String], show_hidden: bool) -> Result<Vec<PathBuf>> {
                     for entry in entries {
                         let entry = entry.context("Failed to read entry")?;
                         let path = entry.path();
-                        let basename = path
+                        let is_hidden = path
                             .file_name()
-                            .context(format!("Failed to get file name: {}", path.display()))?
-                            .to_str()
-                            .context(format!("Failed to convert to string: {}", path.display()))?;
-                        if show_hidden || !basename.starts_with('.') {
+                            .map(|file_name| file_name.to_string_lossy().starts_with('.'))
+                            .unwrap_or(false);
+                        if show_hidden || !is_hidden {
                             rt.push(path);
                         }
                     }
                 } else {
-                    rt.push(path_buf);
+                    rt.push(PathBuf::from(path));
                 }
             }
         }
@@ -116,17 +117,13 @@ fn format_output(paths: &[PathBuf]) -> Result<String> {
         let uid = metadata.uid();
         let gid = metadata.gid();
         let col4 = get_user_by_uid(uid)
-            .context(format!("Failed to get user by uid: {}", uid))?
-            .name()
-            .to_string_lossy()
-            .into_owned(); // 所有しないと`temporary value dropped while borrowed`が発生する
+            .map(|user| user.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| uid.to_string());
         let col5 = get_group_by_gid(gid)
-            .context(format!("Failed to get group by gid: {}", metadata.gid()))?
-            .name()
-            .to_string_lossy()
-            .into_owned();
+            .map(|group| group.name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| gid.to_string());
         let col6 = metadata.len();
-        let col7 = systemtime_to_formatted_string(metadata.modified()?, "%m %d %y %H:%M");
+        let col7 = systemtime_to_formatted_string(metadata.modified()?, "%b %d %y %H:%M");
         let col8 = path.display();
 
         table.add_row(
@@ -147,28 +144,29 @@ fn format_output(paths: &[PathBuf]) -> Result<String> {
 
 /// 0o751のような8進数でファイルモードを指定すると、rwxr-x--xのような文字列に変換する
 fn format_mode(mode: u32) -> String {
-    // userの権限確認
-    let read = if mode & 0o400 != 0 { "r" } else { "-" };
-    let write = if mode & 0o200 != 0 { "w" } else { "-" };
-    let execute = if mode & 0o100 != 0 { "x" } else { "-" };
-    let user = format!("{}{}{}", read, write, execute);
-    // groupの権限確認
-    let read = if mode & 0o040 != 0 { "r" } else { "-" };
-    let write = if mode & 0o020 != 0 { "w" } else { "-" };
-    let execute = if mode & 0o010 != 0 { "x" } else { "-" };
-    let group = format!("{}{}{}", read, write, execute);
-    // otherの権限確認
-    let read = if mode & 0o004 != 0 { "r" } else { "-" };
-    let write = if mode & 0o002 != 0 { "w" } else { "-" };
-    let execute = if mode & 0o001 != 0 { "x" } else { "-" };
-    let other = format!("{}{}{}", read, write, execute);
+    format!(
+        "{}{}{}",
+        mk_triple(mode, Owner::User),
+        mk_triple(mode, Owner::Group),
+        mk_triple(mode, Owner::Other)
+    )
+}
 
-    format!("{}{}{}", user, group, other)
+/// 0o500のような8進数と[`Owner`]を指定すると、
+/// 「r-x」のような文字列を返します。
+pub fn mk_triple(mode: u32, owner: Owner) -> String {
+    let [read, write, execute] = owner.masks();
+    format!(
+        "{}{}{}",
+        if mode & read != 0 { "r" } else { "-" },
+        if mode & write != 0 { "w" } else { "-" },
+        if mode & execute != 0 { "x" } else { "-" }
+    )
 }
 
 #[cfg(test)]
 mod test {
-    use super::{find_files, format_mode, format_output};
+    use super::{Owner, find_files, format_mode, format_output, mk_triple};
     use std::path::PathBuf;
 
     #[test]
@@ -287,5 +285,13 @@ mod test {
 
         let line1 = lines.first().unwrap();
         long_match(&line1, bustle_path, "-rw-r--r--", Some("193"));
+    }
+
+    #[test]
+    fn test_mk_triple() {
+        assert_eq!(mk_triple(0o751, Owner::User), "rwx");
+        assert_eq!(mk_triple(0o751, Owner::Group), "r-x");
+        assert_eq!(mk_triple(0o751, Owner::Other), "--x");
+        assert_eq!(mk_triple(0o600, Owner::Other), "---");
     }
 }
